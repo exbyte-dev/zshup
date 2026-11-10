@@ -1,5 +1,7 @@
 # zshup
 
+[![ci](https://github.com/exbyte-dev/zshup/actions/workflows/ci.yml/badge.svg)](https://github.com/exbyte-dev/zshup/actions/workflows/ci.yml)
+
 One command to set up zsh: packages, Oh My Zsh, autosuggestions, syntax
 highlighting, fzf keybindings and a managed `~/.zshrc`.
 
