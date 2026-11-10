@@ -30,6 +30,17 @@ check() {
   fi
 }
 
+# check_eq <label> <expected> <actual>, which unlike check says what it saw.
+check_eq() {
+  local label="$1" expected="$2" actual="$3"
+  if [[ "$expected" == "$actual" ]]; then
+    pass "$label"
+  else
+    printf '  expected: [%s]\n  actual:   [%s]\n' "$expected" "$actual" >&2
+    fail "$label"
+  fi
+}
+
 # as_user <command string>
 as_user() {
   su - "$USER_NAME" -s /bin/bash -c "$1"
@@ -116,7 +127,7 @@ test_dry_run() {
   check "no ~/.zshrc created"      [ ! -e "$(home)/.zshrc" ]
   check "no ~/.oh-my-zsh created"  [ ! -e "$(home)/.oh-my-zsh" ]
   check "no packages installed"    [ ! -x /usr/bin/zsh ]
-  check "login shell untouched"    [ "$(login_shell)" = "/bin/bash" ]
+  check_eq "login shell untouched" "/bin/bash" "$(login_shell)"
 }
 
 test_install() {
@@ -130,9 +141,13 @@ test_install() {
   check "autosuggestions cloned"     [ -d "$h/.oh-my-zsh/custom/plugins/zsh-autosuggestions/.git" ]
   check "syntax highlighting cloned" [ -d "$h/.oh-my-zsh/custom/plugins/zsh-syntax-highlighting/.git" ]
   check "zshrc matches the template" same_file "$REPO/zshrc" "$h/.zshrc"
-  check "no spurious backup"         [ "$(count_backups)" = "0" ]
-  check "zsh is the login shell"     [ "$(login_shell)" = "$(command -v zsh)" ]
-  check "zsh is listed in /etc/shells" grep -qxF "$(command -v zsh)" /etc/shells
+  check_eq "no spurious backup" "0" "$(count_backups)"
+  local zsh_path
+  zsh_path="$(as_user "command -v zsh")"
+  printf '  zsh for tester: [%s], for root: [%s], passwd entry: [%s]\n' \
+    "$zsh_path" "$(command -v zsh || true)" "$(getent passwd "$USER_NAME")"
+  check_eq "zsh is the login shell" "$zsh_path" "$(login_shell)"
+  check "zsh is listed in /etc/shells" grep -qxF "$zsh_path" /etc/shells
 }
 
 test_shell_loads() {
@@ -179,7 +194,7 @@ test_shell_loads() {
   as_user "printf 'export ZSHUP_LOCAL_OK=1\n' > ~/.zshrc.local"
   local local_out
   local_out="$(as_user "zsh -i -c 'printf %s \$ZSHUP_LOCAL_OK'" 2>/dev/null || true)"
-  check "zshrc.local is sourced" [ "$local_out" = "1" ]
+  check_eq "zshrc.local is sourced" "1" "$local_out"
 }
 
 test_idempotency() {
@@ -195,7 +210,7 @@ test_idempotency() {
   after="$(fingerprint)"
 
   check "no new files or clones" [ "$before" = "$after" ]
-  check "no new backup"          [ "$(count_backups)" = "0" ]
+  check_eq "no new backup" "0" "$(count_backups)"
   check "zshrc still matches the template" same_file "$REPO/zshrc" "$h/.zshrc"
 
   case "$out" in
@@ -224,13 +239,13 @@ test_backup_and_uninstall() {
   as_user "printf '# my own zshrc\n' > ~/.zshrc"
 
   as_user "$REPO/install.sh --yes" >/dev/null
-  check "a backup was taken"            [ "$(count_backups)" = "1" ]
+  check_eq "a backup was taken" "1" "$(count_backups)"
   check "the managed zshrc is in place" same_file "$REPO/zshrc" "$h/.zshrc"
 
   as_user "$REPO/install.sh --uninstall --yes"
-  check "the old zshrc came back" [ "$(cat "$h/.zshrc")" = "# my own zshrc" ]
+  check_eq "the old zshrc came back" "# my own zshrc" "$(cat "$h/.zshrc")"
   check "oh-my-zsh was left alone" [ -f "$h/.oh-my-zsh/oh-my-zsh.sh" ]
-  check "the backup was kept"      [ "$(count_backups)" = "1" ]
+  check_eq "the backup was kept" "1" "$(count_backups)"
 }
 
 main() {
