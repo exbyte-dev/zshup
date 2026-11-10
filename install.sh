@@ -114,6 +114,7 @@ Options:
 
 Environment:
   ZSH_CUSTOM       Oh My Zsh custom dir (default: ~/.oh-my-zsh/custom).
+  ZSHUP_REPO       Repo to fetch the zshrc template from (default: ${ZSHUP_REPO}).
   ZSHUP_REF        Git ref to fetch the zshrc template from (default: main).
   NO_COLOR         Set to disable colored output.
 EOF
