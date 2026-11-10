@@ -178,6 +178,8 @@ keybindings in place, that a second run takes no backup and reclones nothing,
 and that `--uninstall` restores the previous file.
 
 `install.sh` runs under `set -euo pipefail` and is `shellcheck` clean.
+[CI](.github/workflows/ci.yml) runs the same four containers on every push,
+one job per distro, plus `shellcheck` and a `zsh -n` parse of the template.
 
 ## License
 
