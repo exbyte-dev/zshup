@@ -35,6 +35,13 @@ as_user() {
   su - "$USER_NAME" -s /bin/bash -c "$1"
 }
 
+# fedora:latest ships no diffutils, so cmp is not available to compare with.
+same_file() {
+  [[ -f "$1" && -f "$2" ]] || return 1
+  [[ "$(wc -c <"$1")" == "$(wc -c <"$2")" ]] || return 1
+  [[ "$(cat -- "$1")" == "$(cat -- "$2")" ]]
+}
+
 home() { getent passwd "$USER_NAME" | cut -d: -f6; }
 login_shell() { getent passwd "$USER_NAME" | cut -d: -f7; }
 count_backups() { find "$(home)" -maxdepth 1 -name '.zshrc.bak.*' | wc -l | tr -d ' '; }
@@ -58,7 +65,9 @@ bootstrap() {
     # chsh lives in util-linux-user on Fedora and is not in the base image.
     dnf install -y -q sudo shadow-utils util-linux-user >/dev/null
   elif command -v pacman >/dev/null 2>&1; then
-    pacman -Sy --noconfirm --needed sudo >/dev/null
+    # A full upgrade, because -Sy alone against the image's stale database
+    # cannot satisfy dependencies. A throwaway container can afford it.
+    pacman -Syu --noconfirm --needed sudo >/dev/null
   else
     fail "no supported package manager in this image"
   fi
@@ -66,7 +75,17 @@ bootstrap() {
   id "$USER_NAME" >/dev/null 2>&1 || useradd -m -s /bin/bash "$USER_NAME"
   printf '%s ALL=(ALL) NOPASSWD: ALL\n' "$USER_NAME" >"/etc/sudoers.d/$USER_NAME"
   chmod 0440 "/etc/sudoers.d/$USER_NAME"
-  pass "user $USER_NAME created with passwordless sudo"
+
+  # chsh authenticates through PAM, and this account has no password to
+  # authenticate with, so an unprivileged chsh would fail for a reason that has
+  # nothing to do with zshup. A real user has a password here.
+  cat >/etc/pam.d/chsh <<'PAM'
+auth       sufficient   pam_permit.so
+account    sufficient   pam_permit.so
+password   required     pam_permit.so
+session    required     pam_permit.so
+PAM
+  pass "user $USER_NAME created with passwordless sudo and chsh"
 }
 
 # ----------------------------------------------------------------------------
@@ -110,7 +129,7 @@ test_install() {
   check "oh-my-zsh installed"        [ -f "$h/.oh-my-zsh/oh-my-zsh.sh" ]
   check "autosuggestions cloned"     [ -d "$h/.oh-my-zsh/custom/plugins/zsh-autosuggestions/.git" ]
   check "syntax highlighting cloned" [ -d "$h/.oh-my-zsh/custom/plugins/zsh-syntax-highlighting/.git" ]
-  check "zshrc matches the template" cmp -s "$REPO/zshrc" "$h/.zshrc"
+  check "zshrc matches the template" same_file "$REPO/zshrc" "$h/.zshrc"
   check "no spurious backup"         [ "$(count_backups)" = "0" ]
   check "zsh is the login shell"     [ "$(login_shell)" = "$(command -v zsh)" ]
   check "zsh is listed in /etc/shells" grep -qxF "$(command -v zsh)" /etc/shells
@@ -177,7 +196,7 @@ test_idempotency() {
 
   check "no new files or clones" [ "$before" = "$after" ]
   check "no new backup"          [ "$(count_backups)" = "0" ]
-  check "zshrc still matches the template" cmp -s "$REPO/zshrc" "$h/.zshrc"
+  check "zshrc still matches the template" same_file "$REPO/zshrc" "$h/.zshrc"
 
   case "$out" in
     *"already up to date"*) pass "left the zshrc alone" ;;
@@ -206,7 +225,7 @@ test_backup_and_uninstall() {
 
   as_user "$REPO/install.sh --yes" >/dev/null
   check "a backup was taken"            [ "$(count_backups)" = "1" ]
-  check "the managed zshrc is in place" cmp -s "$REPO/zshrc" "$h/.zshrc"
+  check "the managed zshrc is in place" same_file "$REPO/zshrc" "$h/.zshrc"
 
   as_user "$REPO/install.sh --uninstall --yes"
   check "the old zshrc came back" [ "$(cat "$h/.zshrc")" = "# my own zshrc" ]

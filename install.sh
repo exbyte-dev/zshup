@@ -280,7 +280,14 @@ install_packages() {
 
   case "$PKG_MGR" in
     pacman)
-      run "${PRIV[@]}" pacman -Sy --needed --noconfirm "${MISSING[@]}"
+      # -Sy refreshes the package database without upgrading the system, which
+      # is as far as a setup script should go. On a system that is a long way
+      # behind, installing against a fresh database can hit a dependency
+      # conflict, and pacman's own error does not say what to do about it.
+      if ! run "${PRIV[@]}" pacman -Sy --needed --noconfirm "${MISSING[@]}"; then
+        err "pacman could not install: ${MISSING[*]}"
+        die "this usually means the system is out of date: run 'sudo pacman -Syu', then zshup again"
+      fi
       ;;
     apt)
       # ca-certificates keeps https clones working on bare container images.
@@ -402,6 +409,16 @@ fetch_template() {
   [[ -s "$dest" ]] || die "the downloaded zshrc template is empty"
 }
 
+# True when two files hold the same bytes. Deliberately avoids cmp and diff,
+# which come from diffutils and are missing on minimal images such as
+# fedora:latest and on Termux. Comparing the size as well as the text makes up
+# for command substitution stripping trailing newlines.
+files_identical() {
+  [[ -f "$1" && -f "$2" ]] || return 1
+  [[ "$(wc -c <"$1")" == "$(wc -c <"$2")" ]] || return 1
+  [[ "$(cat -- "$1")" == "$(cat -- "$2")" ]]
+}
+
 # A timestamped backup name, with a counter so that two runs in the same
 # second cannot overwrite each other.
 backup_path() {
@@ -422,7 +439,7 @@ deploy_zshrc() {
 
   fetch_template "$template"
 
-  if [[ -f "$ZSHRC" ]] && cmp -s "$template" "$ZSHRC"; then
+  if files_identical "$template" "$ZSHRC"; then
     ok "$(pretty_path "$ZSHRC") is already up to date"
     return
   fi
